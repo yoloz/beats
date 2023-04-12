@@ -18,6 +18,7 @@
 package file
 
 import (
+	"os"
 	"sync"
 	"time"
 
@@ -132,6 +133,12 @@ func (s *States) CleanupWith(fn func(string)) (int, int) {
 				fn(state.Id)
 			}
 			logp.Debug("state", "State removed for %v because of older: %v", state.Source, state.TTL)
+
+			//custom define:remove log file
+			err := os.Remove(state.Source)
+			if err != nil {
+				logp.Err("log file:%s remove fail:%v", state.Source, err)
+			}
 
 			L--
 			if L != i {
