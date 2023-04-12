@@ -81,6 +81,54 @@ Beats](https://github.com/elastic/beats/blob/master/libbeat/docs/communitybeats.
 See our [CONTRIBUTING](CONTRIBUTING.md) file for information about setting up
 your dev environment to build Beats from the source.
 
+### 搭建个人开发环境
+
+[Setting Up Your Dev Environment](https://www.elastic.co/guide/en/beats/devguide/current/beats-contributing.html#setting-up-dev-environment)
+
+The Beats are Go programs, so install the {go-version} version of
+http://golang.org/[Go] which is being used for Beats development.
+
+After https://golang.org/doc/install[installing Go], set the
+https://golang.org/doc/code.html#GOPATH[GOPATH] environment variable to point to
+your workspace location, and make sure `$GOPATH/bin` is in your PATH.
+
+NOTE: One deterministic manner to install the proper Go version to work with Beats is to use the
+https://github.com/andrewkroh/gvm[GVM] Go version manager. An example for Mac users would be:
+
+```bash
+gvm use {go-version}
+eval $(gvm {go-version})
+```
+
+Then you can clone Beats git repository:
+
+```bash
+mkdir -p ${GOPATH}/src/github.com/elastic
+git clone https://github.com/elastic/beats ${GOPATH}/src/github.com/elastic/beats
+```
+
+NOTE: If you have multiple go paths, use `${GOPATH%%:*}` instead of `${GOPATH}`.
+
+Beats developers primarily use https://github.com/magefile/mage[Mage] for development.
+You can install mage using a make target:
+```bash
+make mage
+```
+
+Then you can compile a particular Beat by using Mage. For example, for Filebeat:
+```bash
+cd beats/filebeat
+mage build
+```
+
+You can list all available mage targets with:
+
+```bash
+mage -l
+```
+
+Some of the Beats might have extra development requirements, in which case you'll find a CONTRIBUTING.md file in the Beat directory.
+
 ## Snapshots
 
 For testing purposes, we generate snapshot builds that you can find [here](https://artifacts-api.elastic.co/v1/search/7.x-SNAPSHOT/). Please be aware that these are built on top of master and are not meant for production.
