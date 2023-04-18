@@ -19,6 +19,7 @@ package fmtstr
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"reflect"
 	"strconv"
@@ -429,7 +430,15 @@ func tryConvString(v interface{}) (string, error) {
 	type stringer interface {
 		String() string
 	}
-
+	//添加map类型转成json字符串串
+	t := fmt.Sprintf("%T", v)
+	if strings.HasPrefix(t, "map[") {
+		bytes, err := json.Marshal(v)
+		if err != nil {
+			return "", err
+		}
+		return string(bytes), nil
+	}
 	switch s := v.(type) {
 	case string:
 		return s, nil
