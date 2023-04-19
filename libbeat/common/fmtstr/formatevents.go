@@ -430,15 +430,6 @@ func tryConvString(v interface{}) (string, error) {
 	type stringer interface {
 		String() string
 	}
-	//添加map类型转成json字符串串
-	t := fmt.Sprintf("%T", v)
-	if strings.HasPrefix(t, "map[") {
-		bytes, err := json.Marshal(v)
-		if err != nil {
-			return "", err
-		}
-		return string(bytes), nil
-	}
 	switch s := v.(type) {
 	case string:
 		return s, nil
@@ -465,6 +456,13 @@ func tryConvString(v interface{}) (string, error) {
 		return strconv.FormatFloat(float64(s), 'g', -1, 32), nil
 	case float64:
 		return strconv.FormatFloat(s, 'g', -1, 64), nil
+	//添加map类型转成json字符串串
+	case map[string]interface{}:
+		bytes, err := json.Marshal(v)
+		if err != nil {
+			return "", err
+		}
+		return string(bytes), nil
 	default:
 		return "", errConvertString
 	}
