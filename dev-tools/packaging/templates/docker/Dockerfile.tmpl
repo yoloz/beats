@@ -22,7 +22,7 @@ FROM {{ .from }}
 
 {{- if contains .from "ubi-minimal" }}
 RUN microdnf -y update && \
-    microdnf install findutils shadow-utils && \
+    microdnf -y install findutils shadow-utils && \
     microdnf clean all
 {{- else }}
 RUN for iter in {1..10}; do \
@@ -122,8 +122,7 @@ RUN echo \
 # Setup synthetics env vars
 ENV ELASTIC_SYNTHETICS_CAPABLE=true
 ENV SUITES_DIR={{ $beatHome }}/suites
-# ENV NODE_VERSION=18.12.0
-ENV NODE_VERSION=14.17.5
+ENV NODE_VERSION=18.20.6
 ENV PATH="$NODE_PATH/node/bin:$PATH"
 # Install the latest version of @elastic/synthetics forcefully ignoring the previously
 # cached node_modules, heartbeat then calls the global executable to run test suites
@@ -152,7 +151,7 @@ RUN cd {{$beatHome}}/.node \
 RUN chown -R {{ .user }} $NODE_PATH
 USER {{ .user }}
 # If this fails dump the NPM logs
-RUN npm i -g --loglevel verbose -f @elastic/synthetics@stack_release || sh -c 'tail -n +1 /root/.npm/_logs/* && exit 1'
+RUN npm i -g --loglevel verbose --engine-strict @elastic/synthetics@stack_release || sh -c 'tail -n +1 /root/.npm/_logs/* && exit 1'
 RUN chmod ug+rwX -R $NODE_PATH 
 USER root
 
@@ -166,7 +165,7 @@ RUN for iter in {1..10}; do \
     fonts-noto \
     fonts-noto-cjk && \
     exit_code=0 && break || exit_code=$? && echo "apt-get error: retry $iter in 10s" && sleep 10; \
-done; \ 
+done; \
 (exit $exit_code)
 {{- end }}
 {{- end }}

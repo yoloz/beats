@@ -13,27 +13,27 @@ import (
 	"time"
 
 	"github.com/elastic/beats/v7/x-pack/elastic-agent/pkg/agent/control"
-	"github.com/elastic/beats/v7/x-pack/elastic-agent/pkg/agent/control/proto"
+	"github.com/elastic/beats/v7/x-pack/elastic-agent/pkg/agent/control/cproto"
 )
 
 // Status is the status of the Elastic Agent
-type Status = proto.Status
+type Status = cproto.Status
 
 const (
 	// Starting is when the it is still starting.
-	Starting Status = proto.Status_STARTING
+	Starting Status = cproto.Status_STARTING
 	// Configuring is when it is configuring.
-	Configuring Status = proto.Status_CONFIGURING
+	Configuring Status = cproto.Status_CONFIGURING
 	// Healthy is when it is healthy.
-	Healthy Status = proto.Status_HEALTHY
+	Healthy Status = cproto.Status_HEALTHY
 	// Degraded is when it is degraded.
-	Degraded Status = proto.Status_DEGRADED
+	Degraded Status = cproto.Status_DEGRADED
 	// Failed is when it is failed.
-	Failed Status = proto.Status_FAILED
+	Failed Status = cproto.Status_FAILED
 	// Stopping is when it is stopping.
-	Stopping Status = proto.Status_STOPPING
+	Stopping Status = cproto.Status_STOPPING
 	// Upgrading is when it is upgrading.
-	Upgrading Status = proto.Status_UPGRADING
+	Upgrading Status = cproto.Status_UPGRADING
 )
 
 // Version is the current running version of the daemon.
@@ -92,7 +92,7 @@ type Client interface {
 	// Restart triggers restarting the current running daemon.
 	Restart(ctx context.Context) error
 	// Upgrade triggers upgrade of the current running daemon.
-	Upgrade(ctx context.Context, version string, sourceURI string) (string, error)
+	Upgrade(ctx context.Context, version string, sourceURI string, skipVerify bool, pgpBytes ...string) (string, error)
 	// ProcMeta gathers running process meta-data.
 	ProcMeta(ctx context.Context) ([]ProcMeta, error)
 }
@@ -102,7 +102,7 @@ type client struct {
 	ctx    context.Context
 	cancel context.CancelFunc
 	wg     sync.WaitGroup
-	client proto.ElasticAgentControlClient
+	client cproto.ElasticAgentControlClient
 }
 
 // New creates a client connection to Elastic Agent.
@@ -117,7 +117,7 @@ func (c *client) Connect(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	c.client = proto.NewElasticAgentControlClient(conn)
+	c.client = cproto.NewElasticAgentControlClient(conn)
 	return nil
 }
 
@@ -133,7 +133,7 @@ func (c *client) Disconnect() {
 
 // Version returns the current version of the running agent.
 func (c *client) Version(ctx context.Context) (Version, error) {
-	res, err := c.client.Version(ctx, &proto.Empty{})
+	res, err := c.client.Version(ctx, &cproto.Empty{})
 	if err != nil {
 		return Version{}, err
 	}
@@ -151,7 +151,7 @@ func (c *client) Version(ctx context.Context) (Version, error) {
 
 // Status returns the current status of the running agent.
 func (c *client) Status(ctx context.Context) (*AgentStatus, error) {
-	res, err := c.client.Status(ctx, &proto.Empty{})
+	res, err := c.client.Status(ctx, &cproto.Empty{})
 	if err != nil {
 		return nil, err
 	}
@@ -181,26 +181,28 @@ func (c *client) Status(ctx context.Context) (*AgentStatus, error) {
 
 // Restart triggers restarting the current running daemon.
 func (c *client) Restart(ctx context.Context) error {
-	res, err := c.client.Restart(ctx, &proto.Empty{})
+	res, err := c.client.Restart(ctx, &cproto.Empty{})
 	if err != nil {
 		return err
 	}
-	if res.Status == proto.ActionStatus_FAILURE {
+	if res.Status == cproto.ActionStatus_FAILURE {
 		return fmt.Errorf(res.Error)
 	}
 	return nil
 }
 
 // Upgrade triggers upgrade of the current running daemon.
-func (c *client) Upgrade(ctx context.Context, version string, sourceURI string) (string, error) {
-	res, err := c.client.Upgrade(ctx, &proto.UpgradeRequest{
-		Version:   version,
-		SourceURI: sourceURI,
+func (c *client) Upgrade(ctx context.Context, version string, sourceURI string, skipVerify bool, pgpBytes ...string) (string, error) {
+	res, err := c.client.Upgrade(ctx, &cproto.UpgradeRequest{
+		Version:    version,
+		SourceURI:  sourceURI,
+		SkipVerify: skipVerify,
+		PgpBytes:   pgpBytes,
 	})
 	if err != nil {
 		return "", err
 	}
-	if res.Status == proto.ActionStatus_FAILURE {
+	if res.Status == cproto.ActionStatus_FAILURE {
 		return "", fmt.Errorf(res.Error)
 	}
 	return res.Version, nil
@@ -208,7 +210,7 @@ func (c *client) Upgrade(ctx context.Context, version string, sourceURI string) 
 
 // ProcMeta gathers running beat metadata.
 func (c *client) ProcMeta(ctx context.Context) ([]ProcMeta, error) {
-	resp, err := c.client.ProcMeta(ctx, &proto.Empty{})
+	resp, err := c.client.ProcMeta(ctx, &cproto.Empty{})
 	if err != nil {
 		return nil, err
 	}

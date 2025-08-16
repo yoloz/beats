@@ -11,6 +11,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -23,8 +24,11 @@ import (
 	"github.com/magefile/mage/mg"
 	"github.com/magefile/mage/sh"
 
+	"github.com/elastic/beats/v7/dev-tools/mage"
 	devtools "github.com/elastic/beats/v7/dev-tools/mage"
-	"github.com/elastic/beats/v7/x-pack/elastic-agent/pkg/release"
+	"github.com/elastic/beats/v7/dev-tools/mage/manifest"
+	"github.com/elastic/beats/v7/dev-tools/mage/version"
+	bversion "github.com/elastic/beats/v7/libbeat/version"
 
 	// mage:import
 	"github.com/elastic/beats/v7/dev-tools/mage/target/common"
@@ -45,6 +49,11 @@ const (
 	devEnv         = "DEV"
 	configFile     = "elastic-agent.yml"
 	agentDropPath  = "AGENT_DROP_PATH"
+	platformsEnv   = "PLATFORMS"
+	packagesEnv    = "PACKAGES"
+	commitLen      = 7
+
+	cloudImageTmpl = "docker.elastic.co/observability-ci/elastic-agent:%s"
 )
 
 // Aliases for commands required by master makefile
@@ -52,6 +61,10 @@ var Aliases = map[string]interface{}{
 	"build": Build.All,
 	"demo":  Demo.Enroll,
 }
+
+var errNoManifest = errors.New(fmt.Sprintf("missing %q environment variable", mage.ManifestUrlEnvVar))
+var errNoAgentDropPath = errors.New("missing AGENT_DROP_PATH environment variable")
+var errAtLeastOnePlatform = errors.New("elastic-agent package is expected to build at least one platform package")
 
 func init() {
 	common.RegisterCheckDeps(Update, Check.All)
@@ -88,6 +101,9 @@ type Demo mg.Namespace
 // Dev runs package and build for dev purposes.
 type Dev mg.Namespace
 
+// Cloud produces or pushes cloud image for cloud testing.
+type Cloud mg.Namespace
+
 // Env returns information about the environment.
 func (Prepare) Env() {
 	mg.Deps(Mkdir("build"), Build.GenerateConfig)
@@ -117,12 +133,12 @@ func (Dev) Package() {
 
 // InstallGoLicenser install go-licenser to check license of the files.
 func (Prepare) InstallGoLicenser() error {
-	return GoGet(goLicenserRepo)
+	return GoInstall(goLicenserRepo)
 }
 
 // InstallGoLint for the code.
 func (Prepare) InstallGoLint() error {
-	return GoGet(goLintRepo)
+	return GoInstall(goLintRepo)
 }
 
 // All build all the things for the current projects.
@@ -335,6 +351,52 @@ func Ironbank() error {
 	return devtools.Ironbank()
 }
 
+func FixDRADockerArtifacts() error {
+	return devtools.FixDRADockerArtifacts()
+}
+
+// DownloadManifest downloads the provided manifest file into the predefined folder
+func DownloadManifest() error {
+	fmt.Println("--- Downloading manifest")
+	start := time.Now()
+	defer func() { fmt.Println("Downloading manifest took", time.Since(start)) }()
+
+	dropPath, found := os.LookupEnv(agentDropPath)
+
+	if !found {
+		return errNoAgentDropPath
+	}
+
+	if !devtools.PackagingFromManifest {
+		return errNoManifest
+	}
+
+	platforms := devtools.Platforms.Names()
+	if len(platforms) == 0 {
+		return errAtLeastOnePlatform
+	}
+
+	platformPackages := map[string]string{
+		"darwin/amd64":  "darwin-x86_64.tar.gz",
+		"darwin/arm64":  "darwin-aarch64.tar.gz",
+		"linux/amd64":   "linux-x86_64.tar.gz",
+		"linux/arm64":   "linux-arm64.tar.gz",
+		"windows/amd64": "windows-x86_64.zip",
+	}
+
+	var requiredPackages []string
+	for _, p := range platforms {
+		requiredPackages = append(requiredPackages, platformPackages[p])
+	}
+
+	if e := manifest.DownloadComponentsFromManifest(devtools.ManifestURL, platforms, platformPackages, dropPath); e != nil {
+		return fmt.Errorf("failed to download the manifest file, %w", e)
+	}
+	log.Printf(">> Completed downloading packages from manifest into drop-in %s", dropPath)
+
+	return nil
+}
+
 func requiredPackagesPresent(basePath, beat, version string, requiredPackages []string) bool {
 	for _, pkg := range requiredPackages {
 		if _, ok := os.LookupEnv(snapshotEnv); ok {
@@ -348,6 +410,7 @@ func requiredPackagesPresent(basePath, beat, version string, requiredPackages []
 			return false
 		}
 	}
+	fmt.Printf("All packages for %s are present\n", beat)
 	return true
 }
 
@@ -361,9 +424,9 @@ func RunGo(args ...string) error {
 	return sh.RunV(mg.GoCmd(), args...)
 }
 
-// GoGet fetch a remote dependencies.
-func GoGet(link string) error {
-	_, err := sh.Exec(map[string]string{"GO111MODULE": "off"}, os.Stdout, os.Stderr, "go", "get", link)
+// GoInstall installs a tool by calling `go install <link>
+func GoInstall(link string) error {
+	_, err := sh.Exec(map[string]string{}, os.Stdout, os.Stderr, "go", "install", link)
 	return err
 }
 
@@ -392,6 +455,7 @@ func Update() {
 
 // CrossBuild cross-builds the beat for all target platforms.
 func CrossBuild() error {
+	fmt.Printf(">> Crossbuild")
 	return devtools.CrossBuild()
 }
 
@@ -400,14 +464,31 @@ func CrossBuildGoDaemon() error {
 	return devtools.CrossBuildGoDaemon()
 }
 
+// PackageAgentCore cross-builds and packages distribution artifacts containing
+// only elastic-agent binaries with no extra files or dependencies.
+func PackageAgentCore() {
+	start := time.Now()
+	defer func() { fmt.Println("packageAgentCore ran for", time.Since(start)) }()
+
+	mg.Deps(CrossBuild)
+
+	devtools.UseElasticAgentCorePackaging()
+
+	mg.Deps(devtools.Package)
+}
+
 // Config generates both the short/reference/docker.
 func Config() {
 	mg.Deps(configYML)
 }
 
-// ControlProto generates pkg/agent/control/proto module.
+// ControlProto generates pkg/agent/control/cproto module.
 func ControlProto() error {
-	return sh.RunV("protoc", "--go_out=plugins=grpc:.", "control.proto")
+	return sh.RunV(
+		"protoc",
+		"--go_out=pkg/agent/control/cproto/", "--go_opt=paths=source_relative",
+		"--go-grpc_out=pkg/agent/control/cproto/", "--go-grpc_opt=paths=source_relative",
+		"control.proto")
 }
 
 // BuildSpec make sure that all the suppported program spec are built into the binary.
@@ -557,10 +638,34 @@ func runAgent(env map[string]string) error {
 }
 
 func packageAgent(requiredPackages []string, packagingFn func()) {
-	version, found := os.LookupEnv("BEAT_VERSION")
-	if !found {
-		version = release.Version()
+	fmt.Println("--- Package Elastic-Agent")
+	var packageVersion string
+	// if we have defined a manifest URL to package Agent from, we should be using the same packageVersion of that manifest
+	if devtools.PackagingFromManifest {
+		fmt.Println(">>>> Using manifest to package Agent")
+		if manifestResponse, err := manifest.DownloadManifest(devtools.ManifestURL); err != nil {
+			log.Panicf("failed to download remote manifest file %s", err)
+		} else {
+			if parsedVersion, err := version.ParseVersion(manifestResponse.Version); err != nil {
+				log.Panicf("the manifest version from manifest is not semver, got %s", manifestResponse.Version)
+			} else {
+				// When getting the packageVersion from snapshot we should also update the env of SNAPSHOT=true which is
+				// something that we use as an implicit parameter to various functions
+				if parsedVersion.IsSnapshot() {
+					os.Setenv(snapshotEnv, "true")
+					mage.Snapshot = true
+				}
+				os.Setenv("BEAT_VERSION", parsedVersion.CoreVersion())
+			}
+		}
 	}
+	if beatVersion, found := os.LookupEnv("BEAT_VERSION"); !found {
+		packageVersion = bversion.GetDefaultVersion()
+	} else {
+		packageVersion = beatVersion
+	}
+
+	fmt.Printf(">>> BEAT_VERSION: %s\n", packageVersion)
 
 	// build deps only when drop is not provided
 	if dropPathEnv, found := os.LookupEnv(agentDropPath); !found || len(dropPathEnv) == 0 {
@@ -577,11 +682,10 @@ func packageAgent(requiredPackages []string, packagingFn func()) {
 
 		os.Setenv(agentDropPath, dropPath)
 		if runtime.GOARCH == "arm64" {
-			const platformsVar = "PLATFORMS"
-			oldPlatforms := os.Getenv(platformsVar)
-			os.Setenv(platformsVar, runtime.GOOS+"/"+runtime.GOARCH)
+			oldPlatforms := os.Getenv(platformsEnv)
+			os.Setenv(platformsEnv, runtime.GOOS+"/"+runtime.GOARCH)
 			if oldPlatforms != "" {
-				defer os.Setenv(platformsVar, oldPlatforms)
+				defer os.Setenv(platformsEnv, oldPlatforms)
 			} else {
 				defer os.Unsetenv(oldPlatforms)
 			}
@@ -599,7 +703,7 @@ func packageAgent(requiredPackages []string, packagingFn func()) {
 				panic(err)
 			}
 
-			if !requiredPackagesPresent(pwd, b, version, requiredPackages) {
+			if !requiredPackagesPresent(pwd, b, packageVersion, requiredPackages) {
 				cmd := exec.Command("mage", "package")
 				cmd.Dir = pwd
 				cmd.Stdout = os.Stdout
@@ -608,7 +712,8 @@ func packageAgent(requiredPackages []string, packagingFn func()) {
 				if envVar := selectedPackageTypes(); envVar != "" {
 					cmd.Env = append(cmd.Env, envVar)
 				}
-
+				fmt.Println(">>> Running mage package for %s\n", b)
+				fmt.Println(cmd.String())
 				if err := cmd.Run(); err != nil {
 					panic(err)
 				}
@@ -691,4 +796,105 @@ func injectBuildVars(m map[string]string) {
 	for k, v := range buildVars() {
 		m[k] = v
 	}
+}
+
+// Image builds a cloud image
+func (Cloud) Image() {
+	platforms := os.Getenv(platformsEnv)
+	defer os.Setenv(platformsEnv, platforms)
+
+	packages := os.Getenv(packagesEnv)
+	defer os.Setenv(packagesEnv, packages)
+
+	snapshot := os.Getenv(snapshotEnv)
+	defer os.Setenv(snapshotEnv, snapshot)
+
+	dev := os.Getenv(devEnv)
+	defer os.Setenv(devEnv, dev)
+
+	os.Setenv(platformsEnv, "linux/amd64")
+	os.Setenv(packagesEnv, "docker")
+	os.Setenv(devEnv, "true")
+
+	if s, err := strconv.ParseBool(snapshot); err == nil && !s {
+		// only disable SNAPSHOT build when explicitely defined
+		os.Setenv(snapshotEnv, "false")
+		devtools.Snapshot = false
+	} else {
+		os.Setenv(snapshotEnv, "true")
+		devtools.Snapshot = true
+	}
+
+	devtools.DevBuild = true
+	devtools.Platforms = devtools.Platforms.Filter("linux/amd64")
+	devtools.SelectedPackageTypes = []devtools.PackageType{devtools.Docker}
+
+	Package()
+}
+
+// Push builds a cloud image tags it correctly and pushes to remote image repo.
+// Previous login to elastic registry is required!
+func (Cloud) Push() error {
+	snapshot := os.Getenv(snapshotEnv)
+	defer os.Setenv(snapshotEnv, snapshot)
+
+	os.Setenv(snapshotEnv, "true")
+
+	version := getVersion()
+	var tag string
+	if envTag, isPresent := os.LookupEnv("CUSTOM_IMAGE_TAG"); isPresent && len(envTag) > 0 {
+		tag = envTag
+	} else {
+		commit := dockerCommitHash()
+		time := time.Now().Unix()
+
+		tag = fmt.Sprintf("%s-%s-%d", version, commit, time)
+	}
+
+	sourceCloudImageName := fmt.Sprintf("docker.elastic.co/beats-ci/elastic-agent-cloud:%s", version)
+	var targetCloudImageName string
+	if customImage, isPresent := os.LookupEnv("CI_ELASTIC_AGENT_DOCKER_IMAGE"); isPresent && len(customImage) > 0 {
+		targetCloudImageName = fmt.Sprintf("%s:%s", customImage, tag)
+	} else {
+		targetCloudImageName = fmt.Sprintf(cloudImageTmpl, tag)
+	}
+
+	fmt.Printf(">> Setting a docker image tag to %s\n", targetCloudImageName)
+	err := sh.RunV("docker", "tag", sourceCloudImageName, targetCloudImageName)
+	if err != nil {
+		return fmt.Errorf("Failed setting a docker image tag: %w", err)
+	}
+	fmt.Println(">> Docker image tag updated successfully")
+
+	fmt.Println(">> Pushing a docker image to remote registry")
+	err = sh.RunV("docker", "image", "push", targetCloudImageName)
+	if err != nil {
+		return fmt.Errorf("Failed pushing docker image: %w", err)
+	}
+	fmt.Printf(">> Docker image pushed to remote registry successfully: %s\n", targetCloudImageName)
+
+	return nil
+}
+
+func getVersion() string {
+	version, found := os.LookupEnv("BEAT_VERSION")
+	if !found {
+		version = bversion.GetDefaultVersion()
+	}
+	if !strings.Contains(version, "SNAPSHOT") {
+		if _, ok := os.LookupEnv(snapshotEnv); ok {
+			version += "-SNAPSHOT"
+		}
+	}
+
+	return version
+}
+
+func dockerCommitHash() string {
+	commit, err := devtools.CommitHash()
+	if err == nil && len(commit) > commitLen {
+		return commit[:commitLen]
+	}
+
+	return ""
 }

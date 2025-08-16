@@ -23,9 +23,11 @@ package eventlog
 import (
 	"encoding/xml"
 	"errors"
+	"expvar"
 	"fmt"
 	"io"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -41,6 +43,18 @@ import (
 	"github.com/elastic/beats/v7/winlogbeat/sys"
 	"github.com/elastic/beats/v7/winlogbeat/sys/winevent"
 	win "github.com/elastic/beats/v7/winlogbeat/sys/wineventlog"
+)
+
+var (
+	detailSelector = "eventlog_detail"
+	detailf        = logp.MakeDebug(detailSelector)
+
+	// dropReasons contains counters for the number of dropped events for each
+	// reason.
+	dropReasons = expvar.NewMap("drop_reasons")
+
+	// readErrors contains counters for the read error types that occur.
+	readErrors = expvar.NewMap("read_errors")
 )
 
 const (
@@ -188,6 +202,16 @@ func (l *winEventLog) Name() string {
 	return l.id
 }
 
+// Channel returns the event log's channel name.
+func (l *winEventLog) Channel() string {
+	return l.channelName
+}
+
+// IsFile returns true if the event log is an evtx file.
+func (l *winEventLog) IsFile() bool {
+	return l.file
+}
+
 func (l *winEventLog) Open(state checkpoint.EventLogState) error {
 	var bookmark win.EvtHandle
 	var err error
@@ -255,7 +279,7 @@ func (l *winEventLog) openChannel(bookmark win.EvtHandle) error {
 func (l *winEventLog) openFile(state checkpoint.EventLogState, bookmark win.EvtHandle) error {
 	path := l.channelName
 
-	h, err := win.EvtQuery(0, path, "", win.EvtQueryFilePath|win.EvtQueryForwardDirection)
+	h, err := win.EvtQuery(0, path, l.query, win.EvtQueryFilePath|win.EvtQueryForwardDirection)
 	if err != nil {
 		return fmt.Errorf("failed to get handle to event log file %v: %w", path, err)
 	}
@@ -555,7 +579,7 @@ func newWinEventLog(options *common.Config) (EventLog, error) {
 	// the event's message.
 	switch {
 	case c.Forwarded == nil && c.Name == "ForwardedEvents",
-		c.Forwarded != nil && *c.Forwarded == true:
+		c.Forwarded != nil && *c.Forwarded:
 		l.render = func(event win.EvtHandle, out io.Writer) error {
 			return win.RenderEventXML(event, l.renderBuf, out)
 		}
@@ -580,4 +604,18 @@ func (l *winEventLog) createBookmarkFromEvent(evtHandle win.EvtHandle) (string, 
 	err = win.RenderBookmarkXML(bmHandle, l.renderBuf, l.outputBuf)
 	win.Close(bmHandle)
 	return string(l.outputBuf.Bytes()), err
+}
+
+// incrementMetric increments a value in the specified expvar.Map. The key
+// should be a windows syscall.Errno or a string. Any other types will be
+// reported under the "other" key.
+func incrementMetric(v *expvar.Map, key interface{}) {
+	switch t := key.(type) {
+	default:
+		v.Add("other", 1)
+	case string:
+		v.Add(t, 1)
+	case syscall.Errno:
+		v.Add(strconv.Itoa(int(t)), 1)
+	}
 }

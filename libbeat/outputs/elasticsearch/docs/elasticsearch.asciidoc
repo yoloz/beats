@@ -102,7 +102,7 @@ The compression level must be in the range of `1` (best speed) to `9` (best comp
 
 Increasing the compression level will reduce the network usage but will increase the cpu usage.
 
-The default value is `0`.
+The default value is `1`.
 
 ===== `escape_html`
 
@@ -437,6 +437,9 @@ output.elasticsearch:
   pipeline: my_pipeline_id
 ------------------------------------------------------------------------------
 
+IMPORTANT: The `pipeline` is always lowercased. If `pipeline: Foo-Bar`, then
+the pipeline name in {es} needs to be defined as `foo-bar`.
+
 For more information, see <<configuring-ingest-node>>.
 
 ifndef::apm-server[]
@@ -637,8 +640,10 @@ endif::[]
 
 The maximum number of events to bulk in a single Elasticsearch bulk API index request. The default is 50.
 
-Events can be collected into batches. {beatname_uc} will split batches larger than `bulk_max_size`
-into multiple batches.
+Events can be collected into batches. When using the memory queue with `queue.mem.flush.min_events`
+set to a value greater than `1`, the maximum batch is is the value of `queue.mem.flush.min_events`.
+{beatname_uc} will split batches read from the queue which are larger than `bulk_max_size` into
+multiple batches.
 
 Specifying a larger batch size can improve performance by lowering the overhead of sending events.
 However big batch sizes can also increase processing times, which might result in

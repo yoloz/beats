@@ -23,6 +23,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"os"
 	"time"
 
 	"github.com/magefile/mage/mg"
@@ -203,6 +204,10 @@ func GoIntegTest(ctx context.Context) error {
 
 // PythonIntegTest executes the python system tests in the integration environment (Docker).
 func PythonIntegTest(ctx context.Context) error {
+	if os.Getenv("CI") == "true" && (os.Getenv("STACK_ENVIRONMENT") == "prev-minor" || os.Getenv("STACK_ENVIRONMENT") == "next-major") {
+		mg.Deps(devtools.DefineModules)
+	}
+
 	if !devtools.IsInIntegTestEnv() {
 		mg.Deps(Fields, Dashboards)
 	}
@@ -214,6 +219,9 @@ func PythonIntegTest(ctx context.Context) error {
 		mg.Deps(devtools.BuildSystemTestBinary)
 		args := devtools.DefaultPythonTestIntegrationArgs()
 		args.Env["MODULES_PATH"] = devtools.CWD("module")
+		// Always create a fresh virtual environment when running tests in a container, until we get
+		// get the requirements installed as part of the container build.
+		args.ForceCreateVenv = true
 		return devtools.PythonTest(args)
 	})
 }

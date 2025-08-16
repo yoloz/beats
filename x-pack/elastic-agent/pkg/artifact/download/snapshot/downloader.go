@@ -5,10 +5,17 @@
 package snapshot
 
 import (
+	"context"
 	"encoding/json"
+	goerrors "errors"
 	"fmt"
+	"mime"
+	gohttp "net/http"
+	"net/http/httputil"
 	"strings"
 
+	"github.com/elastic/beats/v7/x-pack/elastic-agent/pkg/agent/errors"
+	"github.com/elastic/beats/v7/x-pack/elastic-agent/pkg/agent/program"
 	"github.com/elastic/beats/v7/x-pack/elastic-agent/pkg/core/logger"
 
 	"github.com/elastic/beats/v7/libbeat/common/transport/httpcommon"
@@ -18,6 +25,12 @@ import (
 	"github.com/elastic/beats/v7/x-pack/elastic-agent/pkg/release"
 )
 
+// Downloader is responsible for downloading artifacts
+type Downloader struct {
+	downloader      download.Downloader
+	versionOverride string
+}
+
 // NewDownloader creates a downloader which first checks local directory
 // and then fallbacks to remote if configured.
 func NewDownloader(log *logger.Logger, config *artifact.Config, versionOverride string) (download.Downloader, error) {
@@ -25,7 +38,37 @@ func NewDownloader(log *logger.Logger, config *artifact.Config, versionOverride 
 	if err != nil {
 		return nil, err
 	}
-	return http.NewDownloader(log, cfg)
+
+	httpDownloader, err := http.NewDownloader(log, cfg)
+	if err != nil {
+		return nil, errors.New(err, "failed to create snapshot downloader")
+	}
+
+	return &Downloader{
+		downloader:      httpDownloader,
+		versionOverride: versionOverride,
+	}, nil
+}
+
+// Download fetches the package from configured source.
+// Returns absolute path to downloaded package and an error.
+func (e *Downloader) Download(ctx context.Context, spec program.Spec, version string) (string, error) {
+	return e.downloader.Download(ctx, spec, version)
+}
+
+// Reload reloads config
+func (e *Downloader) Reload(c *artifact.Config) error {
+	reloader, ok := e.downloader.(artifact.ConfigReloader)
+	if !ok {
+		return nil
+	}
+
+	cfg, err := snapshotConfig(c, e.versionOverride)
+	if err != nil {
+		return errors.New(err, "snapshot.downloader: failed to generate snapshot config")
+	}
+
+	return reloader.Reload(cfg)
 }
 
 func snapshotConfig(config *artifact.Config, versionOverride string) (*artifact.Config, error) {
@@ -58,19 +101,28 @@ func snapshotURI(versionOverride string, config *artifact.Config) (string, error
 	}
 
 	artifactsURI := fmt.Sprintf("https://artifacts-api.elastic.co/v1/search/%s-SNAPSHOT/elastic-agent", version)
-	resp, err := client.Get(artifactsURI)
+	req, err := gohttp.NewRequestWithContext(context.Background(), gohttp.MethodGet, artifactsURI, nil)
+	if err != nil {
+		return "", fmt.Errorf("creating artifacts API request to %q: %w", artifactsURI, err)
+	}
+
+	resp, err := client.Do(req)
 	if err != nil {
 		return "", err
 	}
 	defer resp.Body.Close()
 
+	err = checkResponse(resp)
+	if err != nil {
+		return "", fmt.Errorf("checking artifacts api response: %w", err)
+	}
+
 	body := struct {
 		Packages map[string]interface{} `json:"packages"`
 	}{}
 
-	dec := json.NewDecoder(resp.Body)
-	if err := dec.Decode(&body); err != nil {
-		return "", err
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		return "", fmt.Errorf("decoding GET %s response: %w", artifactsURI, err)
 	}
 
 	if len(body.Packages) == 0 {
@@ -94,12 +146,49 @@ func snapshotURI(versionOverride string, config *artifact.Config) (string, error
 		}
 
 		index := strings.Index(uri, "/beats/elastic-agent/")
-		if index == -1 {
-			return "", fmt.Errorf("not an agent uri: '%s'", uri)
-		}
 
-		return uri[:index], nil
+		// Because we're iterating over a map from the API response,
+		// the order is random and some elements there do not contain the
+		// `/beats/elastic-agent/` substring, so we need to go through the
+		// whole map before returning an error.
+		//
+		// One of the elements that might be there and do not contain this
+		// substring is the `elastic-agent-shipper`, whose URL is something like:
+		// https://snapshots.elastic.co/8.7.0-d050210c/downloads/elastic-agent-shipper/elastic-agent-shipper-8.7.0-SNAPSHOT-linux-x86_64.tar.gz
+		if index != -1 {
+			return uri[:index], nil
+		}
 	}
 
 	return "", fmt.Errorf("uri not detected")
+}
+
+func checkResponse(resp *gohttp.Response) error {
+	if resp.StatusCode != gohttp.StatusOK {
+		responseDump, dumpErr := httputil.DumpResponse(resp, true)
+		if dumpErr != nil {
+			return goerrors.Join(fmt.Errorf("unsuccessful status code %d in artifactsURI response", resp.StatusCode), fmt.Errorf("dumping response: %w", dumpErr))
+		}
+		return fmt.Errorf("unsuccessful status code %d in artifactsURI\nfull response:\n%s", resp.StatusCode, responseDump)
+	}
+
+	responseContentType := resp.Header.Get("Content-Type")
+	mediatype, _, err := mime.ParseMediaType(responseContentType)
+	if err != nil {
+		responseDump, dumpErr := httputil.DumpResponse(resp, true)
+		if dumpErr != nil {
+			return goerrors.Join(fmt.Errorf("parsing content-type %q: %w", responseContentType, err), fmt.Errorf("dumping response: %w", dumpErr))
+		}
+		return fmt.Errorf("parsing content-type %q: %w\nfull response:\n%s", responseContentType, err, responseDump)
+	}
+
+	if mediatype != "application/json" {
+		responseDump, dumpErr := httputil.DumpResponse(resp, true)
+		if dumpErr != nil {
+			return goerrors.Join(fmt.Errorf("unexpected media type in artifacts API response %q (parsed from %q)", mediatype, responseContentType), fmt.Errorf("dumping response: %w", dumpErr))
+		}
+		return fmt.Errorf("unexpected media type in artifacts API response %q (parsed from %q), response:\n%s", mediatype, responseContentType, responseDump)
+	}
+
+	return nil
 }

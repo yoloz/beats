@@ -287,7 +287,7 @@ func (e *inputTestingEnvironment) requireNoEntryInRegistry(filename, inputID str
 func (e *inputTestingEnvironment) requireOffsetInRegistryByID(key string, expectedOffset int) {
 	entry, err := e.getRegistryState(key)
 	if err != nil {
-		e.t.Fatalf(err.Error())
+		e.t.Fatalf("%s", err.Error())
 	}
 
 	require.Equal(e.t, expectedOffset, entry.Cursor.Offset)
@@ -314,7 +314,7 @@ func (e *inputTestingEnvironment) getRegistryState(key string) (registryEntry, e
 
 func getIDFromPath(filepath, inputID string, fi os.FileInfo) string {
 	identifier, _ := newINodeDeviceIdentifier(nil)
-	src := identifier.GetSource(loginp.FSEvent{Info: fi, Op: loginp.OpCreate, NewPath: filepath})
+	src := identifier.GetSource(loginp.FSEvent{Descriptor: loginp.FileDescriptor{Info: fi}, Op: loginp.OpCreate, NewPath: filepath})
 	return "filestream::" + inputID + "::" + src.Name()
 }
 

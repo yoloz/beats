@@ -7,7 +7,9 @@ package composed
 import (
 	"github.com/hashicorp/go-multierror"
 
+	"github.com/elastic/beats/v7/x-pack/elastic-agent/pkg/agent/errors"
 	"github.com/elastic/beats/v7/x-pack/elastic-agent/pkg/agent/program"
+	"github.com/elastic/beats/v7/x-pack/elastic-agent/pkg/artifact"
 	"github.com/elastic/beats/v7/x-pack/elastic-agent/pkg/artifact/download"
 )
 
@@ -30,12 +32,12 @@ func NewVerifier(verifiers ...download.Verifier) *Verifier {
 }
 
 // Verify checks the package from configured source.
-func (e *Verifier) Verify(spec program.Spec, version string, removeOnFailure bool) (bool, error) {
+func (e *Verifier) Verify(spec program.Spec, version string, removeOnFailure bool, pgpBytes ...string) (bool, error) {
 	var err error
 
 	for i, v := range e.vv {
 		isLast := (i + 1) == len(e.vv)
-		b, e := v.Verify(spec, version, isLast && removeOnFailure)
+		b, e := v.Verify(spec, version, isLast && removeOnFailure, pgpBytes...)
 		if e == nil {
 			return b, nil
 		}
@@ -44,4 +46,19 @@ func (e *Verifier) Verify(spec program.Spec, version string, removeOnFailure boo
 	}
 
 	return false, err
+}
+
+// Reload reloads config
+func (e *Verifier) Reload(c *artifact.Config) error {
+	for _, v := range e.vv {
+		reloadable, ok := v.(download.Reloader)
+		if !ok {
+			continue
+		}
+
+		if err := reloadable.Reload(c); err != nil {
+			return errors.New(err, "failed reloading artifact config for composed verifier")
+		}
+	}
+	return nil
 }

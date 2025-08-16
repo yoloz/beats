@@ -43,7 +43,7 @@ spec:
     spec:
       containers:
       - name: kube-state-metrics
-        image: quay.io/coreos/kube-state-metrics:v1.8.0
+        image: registry.k8s.io/kube-state-metrics/kube-state-metrics:v2.7.0
         livenessProbe:
           httpGet:
             path: /healthz
@@ -108,7 +108,7 @@ spec:
         requests:
           storage: 1Mi
 ---
-apiVersion: batch/v1beta1
+apiVersion: batch/v1
 kind: CronJob
 metadata:
   name: basic-cronjob

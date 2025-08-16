@@ -30,7 +30,6 @@ import (
 
 	"github.com/magefile/mage/mg"
 	"github.com/magefile/mage/sh"
-	"github.com/pkg/errors"
 
 	"github.com/elastic/beats/v7/dev-tools/mage/gotool"
 	"github.com/elastic/beats/v7/libbeat/common/file"
@@ -43,7 +42,7 @@ const defaultCrossBuildTarget = "golangCrossBuild"
 // See NewPlatformList for details about platform filtering expressions.
 var Platforms = BuildPlatforms.Defaults()
 
-// Types is the list of package types
+// SelectedPackageTypes Types is the list of package types
 var SelectedPackageTypes []PackageType
 
 func init() {
@@ -136,6 +135,7 @@ func CrossBuild(options ...CrossBuildOption) error {
 
 	// Docker is required for this target.
 	if err := HaveDocker(); err != nil {
+		log.Printf("No docker found: %v\n", err)
 		return err
 	}
 
@@ -162,8 +162,8 @@ func CrossBuild(options ...CrossBuildOption) error {
 		builder := GolangCrossBuilder{buildPlatform.Name, params.Target, params.InDir, params.ImageSelector}
 		if params.Serial {
 			if err := builder.Build(); err != nil {
-				return errors.Wrapf(err, "failed cross-building target=%v for platform=%v %v", params.ImageSelector,
-					params.Target, buildPlatform.Name)
+				return fmt.Errorf("failed cross-building target=%v for platform=%v %v. Err: %w", params.ImageSelector,
+					params.Target, buildPlatform.Name, err)
 			}
 		} else {
 			deps = append(deps, builder.Build)
@@ -202,11 +202,7 @@ func CrossBuildImage(platform string) (string, error) {
 	case platform == "darwin/arm64":
 		tagSuffix = "darwin-arm64-debian10"
 	case platform == "linux/arm64":
-		tagSuffix = "arm"
-		// when it runs on a ARM64 host/worker.
-		if runtime.GOARCH == "arm64" {
-			tagSuffix = "base-arm-debian9"
-		}
+		tagSuffix = "base-arm-debian9"
 	case platform == "linux/armv5":
 		tagSuffix = "armel"
 	case platform == "linux/armv6":
@@ -244,11 +240,11 @@ type GolangCrossBuilder struct {
 
 // Build executes the build inside of Docker.
 func (b GolangCrossBuilder) Build() error {
-	fmt.Printf(">> %v: Building for %v\n", b.Target, b.Platform)
+	log.Printf(">> %v: Building for %v\n", b.Target, b.Platform)
 
 	repoInfo, err := GetProjectRepoInfo()
 	if err != nil {
-		return errors.Wrap(err, "failed to determine repo root and package sub dir")
+		return fmt.Errorf("failed to determine repo root and package sub dir. Err: %w", err)
 	}
 
 	mountPoint := filepath.ToSlash(filepath.Join("/go", "src", repoInfo.CanonicalRootImportPath))
@@ -262,13 +258,13 @@ func (b GolangCrossBuilder) Build() error {
 	builderArch := runtime.GOARCH
 	buildCmd, err := filepath.Rel(workDir, filepath.Join(mountPoint, repoInfo.SubDir, "build/mage-linux-"+builderArch))
 	if err != nil {
-		return errors.Wrap(err, "failed to determine mage-linux-"+builderArch+" relative path")
+		return fmt.Errorf("failed to determine mage-linux-"+builderArch+" relative path. Err: %w", err)
 	}
 
 	dockerRun := sh.RunCmd("docker", "run")
 	image, err := b.ImageSelector(b.Platform)
 	if err != nil {
-		return errors.Wrap(err, "failed to determine golang-crossbuild image tag")
+		return fmt.Errorf("failed to determine golang-crossbuild image tag. Err: %w", err)
 	}
 	verbose := ""
 	if mg.Verbose() {
@@ -302,7 +298,7 @@ func (b GolangCrossBuilder) Build() error {
 
 	args = append(args,
 		"--rm",
-		"--env", "GOFLAGS=-mod=readonly",
+		"--env", "GOFLAGS=-mod=readonly -buildvcs=false",
 		"--env", "MAGEFILE_VERBOSE="+verbose,
 		"--env", "MAGEFILE_TIMEOUT="+EnvOr("MAGEFILE_TIMEOUT", ""),
 		"--env", fmt.Sprintf("SNAPSHOT=%v", Snapshot),
@@ -336,7 +332,7 @@ func chownPaths(uid, gid int, path string) error {
 	start := time.Now()
 	numFixed := 0
 	defer func() {
-		log.Printf("chown took: %v, changed %d files", time.Now().Sub(start), numFixed)
+		log.Printf("chown took: %v, changed %d files", time.Since(start), numFixed)
 	}()
 
 	return filepath.Walk(path, func(name string, info os.FileInfo, err error) error {
@@ -357,7 +353,7 @@ func chownPaths(uid, gid int, path string) error {
 		}
 
 		if err := os.Chown(name, uid, gid); err != nil {
-			return errors.Wrapf(err, "failed to chown path=%v", name)
+			return fmt.Errorf("failed to chown path=%v. Err: %w", name, err)
 		}
 		numFixed++
 		return nil

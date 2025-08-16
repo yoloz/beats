@@ -1,0 +1,70 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+REPO_DIR=$(pwd)
+
+terraformApply() {
+  echo "~~~ Exporting Terraform Env Vars"
+  TF_VAR_BRANCH=$(echo "${BUILDKITE_BRANCH}" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9-]/-/g')
+  TF_VAR_CREATED_DATE=$(date +%s)
+  export TF_VAR_BUILD_ID="${BUILDKITE_BUILD_ID}"
+  export TF_VAR_ENVIRONMENT="ci"
+  export TF_VAR_REPO="beats"
+  export TF_VAR_BRANCH
+  export TF_VAR_CREATED_DATE
+
+  echo "~~~ Terraform Init on $MODULE_DIR"
+  terraform -chdir="$MODULE_DIR" init
+
+  echo "~~~ Terraform Apply on $MODULE_DIR"
+  terraform -chdir="$MODULE_DIR" apply -auto-approve
+}
+
+terraformDestroy() {
+  echo "--- Terraform Cleanup"
+  cd $REPO_DIR
+  find "$MODULE_DIR" -name terraform.tfstate -print0 | while IFS= read -r -d '' tfstate; do
+    cd "$(dirname "$tfstate")"
+    echo "Uploading terraform.tfstate to Buildkite artifacts"
+    buildkite-agent artifact upload "**/terraform.tfstate"
+    buildkite-agent artifact upload "**/.terraform/**"
+    buildkite-agent artifact upload "outputs*.yml"
+    if ! terraform destroy -auto-approve; then
+      return 1
+    fi
+  cd -
+  done
+  return 0
+}
+
+trap 'terraformDestroy' EXIT
+
+max_retries=2
+timeout=5
+retries=0
+
+while true; do
+  echo "~~~ Setting up Terraform"
+  out=$(terraformApply 2>&1)
+  exit_code=$?
+
+  echo "$out"
+
+  if [ $exit_code -eq 0 ]; then
+    break
+  else
+    retries=$((retries + 1))
+
+    if [ $retries -gt $max_retries ]; then
+      terraformDestroy
+      echo "+++ Terraform init & apply failed: $out"
+      exit 1
+    fi
+
+    terraformDestroy
+
+    sleep_time=$((timeout * retries))
+    echo "~~~~ Retry #$retries failed. Retrying after ${sleep_time}s..."
+    sleep $sleep_time
+  fi
+done

@@ -126,7 +126,7 @@ func DefaultTestBinaryArgs() TestBinaryArgs {
 }
 
 // GoTestIntegrationForModule executes the Go integration tests sequentially.
-// Currently all test cases must be present under "./module" directory.
+// Currently, all test cases must be present under "./module" directory.
 //
 // Motivation: previous implementation executed all integration tests at once,
 // causing high CPU load, high memory usage and resulted in timeouts.
@@ -136,14 +136,33 @@ func DefaultTestBinaryArgs() TestBinaryArgs {
 // Use RACE_DETECTOR=true to enable the race detector.
 // Use MODULE=module to run only tests for `module`.
 func GoTestIntegrationForModule(ctx context.Context) error {
-	module := EnvOr("MODULE", "")
-	modulesFileInfo, err := ioutil.ReadDir("./module")
+	modules := EnvOr("MODULE", "")
+	if modules == "" {
+		log.Printf("Warning: environment variable MODULE is empty: [%s]\n", modules)
+	}
+	moduleArr := strings.Split(modules, ",")
+
+	for _, module := range moduleArr {
+		err := goTestIntegrationForSingleModule(ctx, module)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func goTestIntegrationForSingleModule(ctx context.Context, module string) error {
+	modulesFileInfo, err := os.ReadDir("./module")
 	if err != nil {
 		return err
 	}
 
+	type moduleErr struct {
+		name string
+		err  error
+	}
 	foundModule := false
-	failedModules := []string{}
+	failedModules := []moduleErr{}
 	for _, fi := range modulesFileInfo {
 		if !fi.IsDir() {
 			continue
@@ -169,14 +188,23 @@ func GoTestIntegrationForModule(ctx context.Context) error {
 		})
 		if err != nil {
 			// err will already be report to stdout, collect failed module to report at end
-			failedModules = append(failedModules, fi.Name())
+			failedModules = append(failedModules, moduleErr{
+				name: fi.Name(),
+				err:  err,
+			})
 		}
 	}
 	if module != "" && !foundModule {
 		return fmt.Errorf("no module %s", module)
 	}
 	if len(failedModules) > 0 {
-		return fmt.Errorf("failed modules: %s", strings.Join(failedModules, ", "))
+		errMsg := strings.Builder{}
+		names := []string{}
+		for _, m := range failedModules {
+			fmt.Fprintf(&errMsg, "Module: %s\nError: %s\n", m.name, m.err.Error())
+			names = append(names, m.name)
+		}
+		return fmt.Errorf("failed modules: %s.\n%s", strings.Join(names, ", "), errMsg.String())
 	}
 	return nil
 }
@@ -295,13 +323,16 @@ func GoTest(ctx context.Context, params GoTestArgs) error {
 	// Generate a HTML code coverage report.
 	var htmlCoverReport string
 	if params.CoverageProfileFile != "" {
+
 		htmlCoverReport = strings.TrimSuffix(params.CoverageProfileFile,
 			filepath.Ext(params.CoverageProfileFile)) + ".html"
+
 		coverToHTML := sh.RunCmd("go", "tool", "cover",
 			"-html="+params.CoverageProfileFile,
 			"-o", htmlCoverReport)
-		if err = coverToHTML(); err != nil {
-			return errors.Wrap(err, "failed to write HTML code coverage report")
+
+		if err := coverToHTML(); err != nil {
+			return fmt.Errorf("failed to write HTML code coverage report: %w", err)
 		}
 	}
 

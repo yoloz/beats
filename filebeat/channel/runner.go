@@ -72,17 +72,17 @@ func (f *onCreateFactory) Create(pipeline beat.PipelineConnector, cfg *common.Co
 // configuration file settings.
 //
 // Common settings ensured by this factory wrapper:
-//  - *fields*: common fields to be added to the pipeline
-//  - *fields_under_root*: select at which level to store the fields
-//  - *tags*: add additional tags to the events
-//  - *processors*: list of local processors to be added to the processing pipeline
-//  - *keep_null*: keep or remove 'null' from events to be published
-//  - *_module_name* (hidden setting): Add fields describing the module name
-//  - *_ fileset_name* (hiddrn setting):
-//  - *pipeline*: Configure the ES Ingest Node pipeline name to be used for events from this input
-//  - *index*: Configure the index name for events to be collected from this input
-//  - *type*: implicit event type
-//  - *service.type*: implicit event type
+//   - *fields*: common fields to be added to the pipeline
+//   - *fields_under_root*: select at which level to store the fields
+//   - *tags*: add additional tags to the events
+//   - *processors*: list of local processors to be added to the processing pipeline
+//   - *keep_null*: keep or remove 'null' from events to be published
+//   - *_module_name* (hidden setting): Add fields describing the module name
+//   - *_ fileset_name* (hidden setting):
+//   - *pipeline*: Configure the ES Ingest Node pipeline name to be used for events from this input
+//   - *index*: Configure the index name for events to be collected from this input
+//   - *type*: implicit event type
+//   - *service.type*: implicit event type
 func RunnerFactoryWithCommonInputSettings(info beat.Info, f cfgfile.RunnerFactory) cfgfile.RunnerFactory {
 	return wrapRunnerCreate(f,
 		func(
@@ -126,28 +126,28 @@ func newCommonConfigEditor(
 		return nil, err
 	}
 
-	var indexProcessor processors.Processor
-	if !config.Index.IsEmpty() {
-		staticFields := fmtstr.FieldsForBeat(beatInfo.Beat, beatInfo.Version)
-		timestampFormat, err :=
-			fmtstr.NewTimestampFormatString(&config.Index, staticFields)
-		if err != nil {
-			return nil, err
-		}
-		indexProcessor = add_formatted_index.New(timestampFormat)
-	}
-
-	userProcessors, err := processors.New(config.Processors)
-	if err != nil {
-		return nil, err
-	}
-
 	serviceType := config.ServiceType
 	if serviceType == "" {
 		serviceType = config.Module
 	}
 
 	return func(clientCfg beat.ClientConfig) (beat.ClientConfig, error) {
+		var indexProcessor processors.Processor
+		if !config.Index.IsEmpty() {
+			staticFields := fmtstr.FieldsForBeat(beatInfo.Beat, beatInfo.Version)
+			timestampFormat, err :=
+				fmtstr.NewTimestampFormatString(&config.Index, staticFields)
+			if err != nil {
+				return clientCfg, err
+			}
+			indexProcessor = add_formatted_index.New(timestampFormat)
+		}
+
+		userProcessors, err := processors.New(config.Processors)
+		if err != nil {
+			return clientCfg, err
+		}
+
 		meta := clientCfg.Processing.Meta.Clone()
 		fields := clientCfg.Processing.Fields.Clone()
 
@@ -191,6 +191,6 @@ func newCommonConfigEditor(
 
 func setOptional(to common.MapStr, key string, value string) {
 	if value != "" {
-		to.Put(key, value)
+		_, _ = to.Put(key, value)
 	}
 }

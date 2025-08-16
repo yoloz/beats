@@ -3,7 +3,7 @@
 @Library('apm@current') _
 
 pipeline {
-  agent { label 'ubuntu-18 && immutable' }
+  agent { label 'ubuntu-22 && immutable' }
   environment {
     AWS_ACCOUNT_SECRET = 'secret/observability-team/ci/elastic-observability-aws-account-auth'
     AWS_REGION = "${params.awsRegion}"
@@ -24,7 +24,7 @@ pipeline {
     SNAPSHOT = 'true'
     TERRAFORM_VERSION = "0.13.7"
     XPACK_MODULE_PATTERN = '^x-pack\\/[a-z0-9]+beat\\/module\\/([^\\/]+)\\/.*'
-    KIND_VERSION = 'v0.11.1'
+    KIND_VERSION = 'v0.15.0'
     K8S_VERSION = 'v1.21.1'
   }
   options {
@@ -198,16 +198,6 @@ pipeline {
 COMMIT=${env.GIT_BASE_COMMIT}
 VERSION=${env.VERSION}-SNAPSHOT""")
       archiveArtifacts artifacts: 'packaging.properties'
-    }
-    cleanup {
-      // Required to enable the flaky test reporting with GitHub. Workspace exists since the post/always runs earlier
-      dir("${BASE_DIR}"){
-        notifyBuildResult(prComment: true,
-                          slackComment: true,
-                          analyzeFlakey: !isTag(), jobName: getFlakyJobName(withBranch: getFlakyBranch()),
-                          githubIssue: isGitHubIssueEnabled(),
-                          githubLabels: 'Team:Elastic-Agent-Data-Plane')
-      }
     }
   }
 }
@@ -461,7 +451,7 @@ def pushCIDockerImages(Map args = [:]) {
   def arch = args.get('arch', 'amd64')
   def beatsFolder = args.beatsFolder
   catchError(buildResult: 'UNSTABLE', message: 'Unable to push Docker images', stageResult: 'FAILURE') {
-    def defaultVariants = [ '' : 'beats', '-oss' : 'beats', '-ubi8' : 'beats' ]
+    def defaultVariants = [ '' : 'beats', '-oss' : 'beats', '-ubi' : 'beats' ]
     def completeVariant = ['-complete' : 'beats']
     if (beatsFolder.endsWith('auditbeat')) {
       tagAndPush(beatName: 'auditbeat', arch: arch, variants: defaultVariants)

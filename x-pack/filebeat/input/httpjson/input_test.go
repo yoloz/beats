@@ -8,7 +8,6 @@ import (
 	"context"
 	"fmt"
 	"io/ioutil"
-	"math/rand"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -240,7 +239,7 @@ func TestStatelessHTTPJSONInput(t *testing.T) {
 			var g errgroup.Group
 			g.Go(func() error { return input.Run(ctx, chanClient) })
 
-			timeout := time.NewTimer(5 * time.Second)
+			timeout := time.NewTimer(10 * time.Second)
 			t.Cleanup(func() { _ = timeout.Stop() })
 
 			var receivedCount int
@@ -331,7 +330,8 @@ func retryHandler() http.HandlerFunc {
 			_, _ = w.Write([]byte(`{"hello":"world"}`))
 			return
 		}
-		w.WriteHeader(rand.Intn(100) + 500)
+		// Any 5xx except 501 will result in a retry.
+		w.WriteHeader(500)
 		count += 1
 	}
 }

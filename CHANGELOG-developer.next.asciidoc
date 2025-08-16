@@ -61,6 +61,10 @@ The list below covers the major changes between 7.0.0-rc2 and master only.
 - Remove `event.dataset` (ECS) annotion from `libbeat.logp`. {issue}27404[27404]
 - Errors should be thrown as errors. Metricsets inside Metricbeat will now throw errors as the `error` log level. {pull}27804[27804]
 - Avoid panicking in `add_fields` processor when input event.Fields is a nil map. {pull}28219[28219]
+- Fix type mismatch in libbeat/metric/system/cgroup/cgv2 when building on mips platforms. {pull}34658[34658]
+- Make winlogbeat/sys/wineventlog follow the unsafe.Pointer rules. {pull}36650[36650]
+- Skip flakey test in HTTPJSON input {issue}34929[34929] {issue}37146[37146] {pull}37162[37162]
+- Fix flaky test in cel and httpjson inputs of filebeat. {issue}40503[40503] {pull}41358[41358]
 
 ==== Added
 
@@ -118,6 +122,12 @@ The list below covers the major changes between 7.0.0-rc2 and master only.
 - Introduce `libbeat/beat.Beat.OutputConfigReloader` {pull}28048[28048]
 - Update Go version to 1.17.1. {pull}27543[27543]
 - Whitelist `GCP_*` environment variables in dev tools {pull}28364[28364]
+- Improve tests files with shorter statements. {pull}35667[35667]
+- Improve compatibility and reduce flakyness of Python tests {pull}31588[31588]
+- Pin PyYAML version to 5.3.1 to avoid CI errors temporarily {pull}36091[36091]
+- Make logs for empty and small files less noisy when using fingerprint file identity in filestream. {pull}38421[38421]
+- Fix python tests saving config file with wrong permission. {issue}42779[42779]
+- Tests reading testdata config file now set flag `strict.perms=false`. They use the new `testflag` package helper function MustSetStrictPermsFalse. {issue}42779[42779]
 
 ==== Deprecated
 

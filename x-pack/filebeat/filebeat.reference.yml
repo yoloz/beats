@@ -2811,6 +2811,19 @@ filebeat.inputs:
   # original for harvesting but will report the symlink name as source.
   #prospector.scanner.symlinks: false
 
+  # If enabled, instead of relying on the device ID and inode values when comparing files,
+  # compare hashes of the given byte ranges in files. A file becomes an ingest target
+  # when its size grows larger than offset+length (see below). Until then it's ignored.
+  #prospector.scanner.fingerprint.enabled: false
+
+  # If fingerprint mode is enabled, sets the offset from the beginning of the file
+  # for the byte range used for computing the fingerprint value.
+  #prospector.scanner.fingerprint.offset: 0
+
+  # If fingerprint mode is enabled, sets the length of the byte range used for
+  # computing the fingerprint value. Cannot be less than 64 bytes.
+  #prospector.scanner.fingerprint.length: 1024
+
   ### Parsers configuration
 
   #### JSON configuration
@@ -3725,8 +3738,9 @@ output.elasticsearch:
   # IPv6 addresses should always be defined as: https://[2001:db8::1]:9200
   hosts: ["localhost:9200"]
 
-  # Set gzip compression level.
-  #compression_level: 0
+  # Set gzip compression level. Set to 0 to disable compression.
+  # The default is 1.
+  #compression_level: 1
 
   # Configure escaping HTML symbols in strings.
   #escape_html: false
@@ -4552,9 +4566,9 @@ setup.template.settings:
 # to load your own lifecycle policy.
 #setup.ilm.policy_file:
 
-# Disable the check for an existing lifecycle policy. The default is true. If
-# you disable this check, set setup.ilm.overwrite: true so the lifecycle policy
-# can be installed.
+# Disable the check for an existing lifecycle policy. The default is true.
+# If you set this option to false, lifecycle policy will not be installed,
+# even if setup.ilm.overwrite is set to true.
 #setup.ilm.check_exists: true
 
 # Overwrite the lifecycle policy at startup. The default is false.

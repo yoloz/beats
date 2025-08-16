@@ -48,6 +48,9 @@ const (
 	elasticBeatsImportPath = "github.com/elastic/beats"
 
 	elasticBeatsModulePath = "github.com/elastic/beats/v7"
+
+	//ManifestUrlEnvVar is the name fo the environment variable containing the Manifest URL to be used for packaging agent
+	ManifestUrlEnvVar = "MANIFEST_URL"
 )
 
 // Common settings with defaults derived from files, CWD, and environment.
@@ -83,6 +86,11 @@ var (
 
 	versionQualified bool
 	versionQualifier string
+
+	// PackagingFromManifest This value is set to true when we have defined a ManifestURL variable
+	PackagingFromManifest bool
+	// ManifestURL Location of the manifest file to package
+	ManifestURL string
 
 	FuncMap = map[string]interface{}{
 		"beat_doc_branch":   BeatDocBranch,
@@ -126,6 +134,9 @@ func init() {
 	}
 
 	versionQualifier, versionQualified = os.LookupEnv("VERSION_QUALIFIER")
+
+	ManifestURL = EnvOr(ManifestUrlEnvVar, "")
+	PackagingFromManifest = ManifestURL != ""
 }
 
 // ProjectType specifies the type of project (OSS vs X-Pack).

@@ -667,13 +667,13 @@ shared:
 
   - &docker_ubi_spec
     extra_vars:
-      image_name: '{{.BeatName}}-ubi8'
-      from: 'docker.elastic.co/ubi8/ubi-minimal'
+      image_name: '{{.BeatName}}-ubi'
+      from: 'docker.elastic.co/ubi9/ubi-minimal'
 
   - &docker_arm_ubi_spec
     extra_vars:
-      image_name: '{{.BeatName}}-ubi8'
-      from: 'registry.access.redhat.com/ubi8/ubi-minimal:8.2'
+      image_name: '{{.BeatName}}-ubi'
+      from: 'registry.access.redhat.com/ubi9/ubi-minimal:9.4'
 
   - &elastic_docker_spec
     extra_vars:
@@ -1145,6 +1145,49 @@ specs:
         <<: *agent_docker_spec
         <<: *elastic_docker_spec
         <<: *elastic_license_for_binaries
+        files:
+          '{{.BeatName}}{{.BinaryExt}}':
+            source: ./build/golang-crossbuild/{{.BeatName}}-{{.GOOS}}-{{.Platform.Arch}}{{.BinaryExt}}
+  elastic_agent_core:
+    ###
+    # Elastic Licensed Core Packages
+    ###
+    - os: windows
+      types: [zip]
+      spec:
+        <<: *common
+        <<: *elastic_license_for_binaries
+        qualifier: core
+        files:
+          '{{.BeatName}}{{.BinaryExt}}':
+            source: ./build/golang-crossbuild/{{.BeatName}}-{{.GOOS}}-{{.Platform.Arch}}{{.BinaryExt}}
+
+    - os: darwin
+      types: [tgz]
+      spec:
+        <<: *common
+        <<: *elastic_license_for_binaries
+        qualifier: core
+        files:
+          '{{.BeatName}}{{.BinaryExt}}':
+            source: ./build/golang-crossbuild/{{.BeatName}}-{{.GOOS}}-{{.Platform.Arch}}{{.BinaryExt}}
+
+    - os: linux
+      types: [tgz]
+      spec:
+        <<: *common
+        <<: *elastic_license_for_binaries
+        qualifier: core
+        files:
+          '{{.BeatName}}{{.BinaryExt}}':
+            source: ./build/golang-crossbuild/{{.BeatName}}-{{.GOOS}}-{{.Platform.Arch}}{{.BinaryExt}}
+
+    - os: aix
+      types: [tgz]
+      spec:
+        <<: *common
+        <<: *elastic_license_for_binaries
+        qualifier: core
         files:
           '{{.BeatName}}{{.BinaryExt}}':
             source: ./build/golang-crossbuild/{{.BeatName}}-{{.GOOS}}-{{.Platform.Arch}}{{.BinaryExt}}
