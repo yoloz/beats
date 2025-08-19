@@ -109,6 +109,12 @@ func makeES(
 			Pipeline:           pipeline,
 			Observer:           observer,
 			NonIndexableAction: policy.action(),
+
+			SyslogProto:    config.SyslogProto,
+			SyslogHost:     config.SyslogHost,
+			SyslogFacility: config.SyslogFacility,
+			SyslogSeverity: config.SyslogSeverity,
+			SyslogTag:      config.SyslogTag,
 		}, &connectCallbackRegistry)
 		if err != nil {
 			return outputs.Fail(err)

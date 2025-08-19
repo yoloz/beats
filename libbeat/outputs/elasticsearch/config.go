@@ -45,6 +45,12 @@ type elasticsearchConfig struct {
 	NonIndexablePolicy *common.ConfigNamespace `config:"non_indexable_policy"`
 
 	Transport httpcommon.HTTPTransportSettings `config:",inline"`
+	// syslog
+	SyslogProto    string `config:"syslog_proto"`
+	SyslogHost     string `config:"syslog_host"`
+	SyslogFacility string `config:"syslog_facility"`
+	SyslogSeverity string `config:"syslog_severity"`
+	SyslogTag      string `config:"syslog_tag"`
 }
 
 type Backoff struct {
@@ -73,7 +79,12 @@ var (
 			Init: 1 * time.Second,
 			Max:  60 * time.Second,
 		},
-		Transport: httpcommon.DefaultHTTPTransportSettings(),
+		Transport:      httpcommon.DefaultHTTPTransportSettings(),
+		SyslogProto:    "udp",
+		SyslogHost:     "127.0.0.1:514",
+		SyslogFacility: "user",
+		SyslogSeverity: "info",
+		SyslogTag:      "beats",
 	}
 )
 

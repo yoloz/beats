@@ -49,6 +49,8 @@ type Client struct {
 	NonIndexableAction string
 
 	log *logp.Logger
+
+	sysConn outputs.NetworkClient // syslog client for sending syslog messages
 }
 
 // ClientSettings contains the settings for a client.
@@ -58,6 +60,12 @@ type ClientSettings struct {
 	Pipeline           *outil.Selector
 	Observer           outputs.Observer
 	NonIndexableAction string
+	// Syslog settings
+	SyslogProto    string
+	SyslogHost     string
+	SyslogFacility string
+	SyslogSeverity string
+	SyslogTag      string
 }
 
 type bulkResultStats struct {
@@ -124,6 +132,7 @@ func NewClient(
 		}
 		return nil
 	}
+	syslogClient := newSyslogClient(s)
 
 	client := &Client{
 		conn:               *conn,
@@ -133,6 +142,8 @@ func NewClient(
 		NonIndexableAction: s.NonIndexableAction,
 
 		log: logp.NewLogger("elasticsearch"),
+
+		sysConn: syslogClient,
 	}
 
 	return client, nil
@@ -181,6 +192,9 @@ func (client *Client) Publish(ctx context.Context, batch publisher.Batch) error 
 	events := batch.Events()
 	rest, err := client.publishEvents(ctx, events)
 	if len(rest) == 0 {
+		if client.sysConn != nil {
+			client.sysConn.Publish(ctx, batch)
+		}
 		batch.ACK()
 	} else {
 		batch.RetryEvents(rest)
@@ -433,6 +447,9 @@ func (client *Client) Connect() error {
 }
 
 func (client *Client) Close() error {
+	if client.sysConn != nil {
+		client.sysConn.Close()
+	}
 	return client.conn.Close()
 }
 
